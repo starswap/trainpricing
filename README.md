@@ -15,6 +15,8 @@ In any case if you want to run this yourself for any reason you need to:
 ./a.out "../fetch/fares_data/RJFAF063" "../fetch/nlcs_corpus.csv" "16062024" "starting_stations.txt"
 ```
 
+Data reference: https://data.atoc.org/sites/all/themes/atoc/files/RSPS5045.pdf
+
 ## Future Improvements
 - Include non derivable fares and railcard discounts
 - Try using a variety of tickets on each journey leg (e.g. the five best) and get a range of costs for a given journey.
