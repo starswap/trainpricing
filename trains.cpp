@@ -59,23 +59,20 @@ vector<size_t> sort_indexes(const vector<T> &v) {
 }
 
 // Converts a date of the form 01012024 to a number of seconds since the epoch
-time_t convert_to_seconds(string date_string) {
-    istringstream date_s(date_string);
-    struct tm date_c = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    date_s >> get_time(&date_c, "%d%m%Y");
-    if (date_s.fail()) {
-        cerr << "Error parsing date string\n";
-    }
-    return mktime(&date_c);
+tuple<int, int, int> parse(string date_string) {
+    int day = stoi(date_string.substr(0, 2));
+    int month = stoi(date_string.substr(2, 2));
+    int year = stoi(date_string.substr(4, 4));
+    return make_tuple(year, month, day);
 }
 
 // Determines if we are currently in the period starting on start_date_string
 // and ending on end_date_string inclusive
-bool is_active(string start_date_string, string travel_date_string,  string end_date_string) {
-    time_t start = convert_to_seconds(start_date_string);
-    time_t travel = convert_to_seconds(travel_date_string);
-    time_t end = convert_to_seconds(end_date_string);
-    return start <= travel && travel <= end;
+bool is_active(string start_date_string, string travel_date_string,  string end_date_string) {    
+    auto start = parse(start_date_string);
+    auto travel = parse(travel_date_string);
+    auto end = parse(end_date_string);
+    return start <= travel && (end_date_string == "31122999" || travel <= end);
 }
 
 // Displays the station clusters defined by the imported fares data so that we can
