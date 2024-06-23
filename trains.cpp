@@ -216,7 +216,6 @@ void process_flows_file(int N, string base_fare_path, string travel_date_string)
     int unknown_nlc_flows = 0;
     int total_flows = 0;
     string line;
-    // TODO: prune NLCs that do not correspond to a station in the fares data
     AM.assign(N, vector<int>(N, INF));
     ticket_codes_using.assign(N, vector<string>(N, ""));
     cout << "Processing FFL flow file:" << endl;
@@ -238,8 +237,10 @@ void process_flows_file(int N, string base_fare_path, string travel_date_string)
                     unknown_nlc_flows++;
                     continue;
                 }
+                // TODO: Note that potentially F records could be intermingled with T records so in theory you might have to do 
+                // two passes over the data. It's not clear if that would ever arise from the specification but the data doesn't
+                // seem to ever have this problem.
                 flow_id_to_vertices[flow_id] = make_tuple(nlc_to_index[origin_nlc], nlc_to_index[dest_nlc], (direction == 'R'));
-                // TODO: Note that potentially F records could be intermingled with T records
             } else if (line[1] == 'T') {
                 const int flow_id = stoi(line.substr(2, 7));
                 if (!flow_id_to_vertices.count(flow_id)) continue;
@@ -264,6 +265,43 @@ void process_flows_file(int N, string base_fare_path, string travel_date_string)
     }
 }
 
+// // Reads in the actual flows and fares data itself.
+// void find_f_records(string base_fare_path) {
+//     string line;
+//     cout << "Finding start point" << endl;
+//     ifstream flows(base_fare_path + ".FFL"); 
+    
+//     if (flows.is_open()) {
+//         for (int i = 0; i < 4; ++i) { // skip first 3 comments
+//             getline(flows, line);
+//         }
+        
+//         long records;
+//         sscanf(line.c_str(),"/!! Records: %ld",&records);
+//         while (line[0] == '/') {
+//             getline(flows, line);
+//         }
+
+//         int lineLength = line.size();
+//         auto lo = flows.tellg();
+
+
+//     // int lo = 0;
+//     // int hi = 
+    
+//     //         if (line[1] == 'F') {
+//     //         } else if (line[1] == 'T') {
+//     //         } else {
+//     //             cout << "Illegal line: " << line << endl;
+//     //         }
+//         // }
+//         flows.close();
+//     } else {
+//         cout << "Failed to open flows file" << endl;
+//     }
+// }
+
+
 int main(int argc, char** argv) {
     if (argc != 5) {
         cout << "Usage: <program executable> <base fare path> <nlc csv file> <travel date string> <starting stations file>" << '\n';
@@ -275,6 +313,8 @@ int main(int argc, char** argv) {
     string NLC_CSV_FILE(argv[2]); // You can get this from CORPUS Open Data which is owned by /Network/ Rail https://wiki.openraildata.com/index.php?title=Reference_Data#CORPUS:_Location_Reference_Data  
     string TRAVEL_DATE_STRING(argv[3]); // E.g. 29022024 for 29th February 2024
     string STARTING_STATIONS_FILE(argv[4]); // E.g. starting_stations.txt. The names used need to match those from CORPUS.
+
+    // find_f_records(BASE_FARE_PATH);
 
     index_to_nlc.reserve(5000); // I know that there are about 5000 stations and clusters.
 
@@ -304,6 +344,8 @@ int main(int argc, char** argv) {
         pq.emplace(-cost[one_start_nlc], one_start_nlc);
     }
 
+    cout << "About to start dijkstra" << endl;
+
     vector<unsigned int> parent(N);
     iota(parent.begin(), parent.end(), 0);
     while (!pq.empty()) {
@@ -318,6 +360,8 @@ int main(int argc, char** argv) {
             }
         }
     }
+
+    cout << "Done Dijkstra" << endl;
 
     for (auto i: sort_indexes(cost)) {
         string name = get_name(i);
@@ -351,5 +395,3 @@ int main(int argc, char** argv) {
 }
 
 
-
-// TODO: Optimise
