@@ -1,6 +1,11 @@
 #include <bits/stdc++.h>
 using namespace std;
 
+using std::chrono::high_resolution_clock;
+using std::chrono::duration_cast;
+using std::chrono::duration;
+using std::chrono::milliseconds;
+
 unordered_map<string, vector<int>> clusters;
 unordered_map<int, string> nlc_to_name;
 unordered_map<string, int> name_to_nlc;
@@ -9,7 +14,11 @@ unordered_map<int, tuple<int, int, bool>> flow_id_to_vertices;
 vector<pair<string, bool>> index_to_nlc; // true = cluster
 vector<vector<int>> AM;
 vector<vector<pair<int, int>>> AL;
-vector<vector<string>> ticket_codes_using;
+
+const int N_NLC_APPROX = 5000;
+char ticket_codes_using[N_NLC_APPROX][N_NLC_APPROX][4];
+
+auto t0 = high_resolution_clock::now();
 
 const int INF = 1'000'000'000;
 
@@ -49,6 +58,16 @@ vector<string> getNextLineAndSplitIntoTokens(istream& str)
     return result;
 }
 
+// https://stackoverflow.com/questions/16826422/c-most-efficient-way-to-convert-string-to-int-faster-than-atoi
+int fast_atoi( const char * str )
+{
+    int val = 0;
+    while( *str ) {
+        val = val*10 + (*str++ - '0');
+    }
+    return val;
+}
+
 // https://stackoverflow.com/questions/1577475/c-sorting-and-keeping-track-of-indexes
 template <typename T>
 vector<size_t> sort_indexes(const vector<T> &v) {
@@ -60,9 +79,9 @@ vector<size_t> sort_indexes(const vector<T> &v) {
 
 // Converts a date of the form 01012024 to a number of seconds since the epoch
 tuple<int, int, int> parse(string date_string) {
-    int day = stoi(date_string.substr(0, 2));
-    int month = stoi(date_string.substr(2, 2));
-    int year = stoi(date_string.substr(4, 4));
+    int day = fast_atoi(date_string.substr(0, 2).c_str());
+    int month = fast_atoi(date_string.substr(2, 2).c_str());
+    int year = fast_atoi(date_string.substr(4, 4).c_str());
     return make_tuple(year, month, day);
 }
 
@@ -96,7 +115,7 @@ string get_name(int index) {
         name = "cluster with nlc ";
         name += nlc;
     } else {
-        name = nlc_to_name[stoi(nlc)];
+        name = nlc_to_name[fast_atoi(nlc.c_str())];
     }
     return name;
 } 
@@ -123,7 +142,7 @@ void process_cluster_file(string base_fare_path, string travel_date_string) {
                 continue;
             }; 
             valid_count++;
-            clusters[cluster_nlc].push_back(stoi(target_nlc));
+            clusters[cluster_nlc].push_back(fast_atoi(target_nlc.c_str()));
             if (!nlc_to_index.count(cluster_nlc)) {
                 nlc_to_index[cluster_nlc] = nlc_idx++;
                 index_to_nlc.emplace_back(cluster_nlc, true);
@@ -172,7 +191,7 @@ void process_nlc_data_file(string nlc_csv_file, string base_fare_path) {
             if (first) {first = false; getline(nlcs, line); continue;}
             vector<string> results = getNextLineAndSplitIntoTokens(nlcs);
             if (!relevant_nlcs.count(results[1])) continue; // skip NLCs that we don't need; optimisation
-            int nlc = stoi(results[1]);
+            int nlc = fast_atoi(results[1].c_str());
             nlc_to_name[nlc] = results[0];
             name_to_nlc[results[0]] = nlc;
             string string_nlc = results[1].substr(0, 4);
@@ -214,7 +233,9 @@ void process_flows_file(int N, string base_fare_path, string travel_date_string)
     int total_flows = 0;
     string line;
     AM.assign(N, vector<int>(N, INF));
-    ticket_codes_using.assign(N, vector<string>(N, ""));
+    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
+    cout << "starting str" << endl;
+    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
     cout << "Processing FFL flow file:" << endl;
     ifstream flows(base_fare_path + ".FFL"); 
     if (flows.is_open()) {
@@ -227,7 +248,7 @@ void process_flows_file(int N, string base_fare_path, string travel_date_string)
                 const char direction = line[19];
                 const string end_date = line.substr(20, 8); 
                 const string start_date = line.substr(28, 8); 
-                const int flow_id = stoi(line.substr(42, 7));
+                const int flow_id = fast_atoi(line.substr(42, 7).c_str());
 
                 if (!is_active(start_date, travel_date_string, end_date)) continue;
                 if (!((nlc_to_index.count(origin_nlc) > 0) && (nlc_to_index.count(dest_nlc) > 0))) {
@@ -239,16 +260,16 @@ void process_flows_file(int N, string base_fare_path, string travel_date_string)
                 // seem to ever have this problem.
                 flow_id_to_vertices[flow_id] = make_tuple(nlc_to_index[origin_nlc], nlc_to_index[dest_nlc], (direction == 'R'));
             } else if (line[1] == 'T') {
-                const int flow_id = stoi(line.substr(2, 7));
+                const int flow_id = fast_atoi(line.substr(2, 7).c_str());
                 if (!flow_id_to_vertices.count(flow_id)) continue;
                 const string ticket_code = line.substr(9, 3);
-                const int fare_in_pence = stoi(line.substr(12, 8));
+                const int fare_in_pence = fast_atoi(line.substr(12, 8).c_str());
                 auto [u, v, reversible] = flow_id_to_vertices[flow_id];
 
                 for (int i = 0; i < 2; ++i) { // Try both ways round
-                    if (AM[u][v] > fare_in_pence && fare_in_pence > MIN_SANE_FARE && (acceptable_ticket(ticket_code))) {
+                    if ((acceptable_ticket(ticket_code)) && AM[u][v] > fare_in_pence && fare_in_pence > MIN_SANE_FARE) {
                         AM[u][v] = fare_in_pence;
-                        ticket_codes_using[u][v] = ticket_code;
+                        strcpy(ticket_codes_using[u][v], ticket_code.c_str());
                     }
                     if (reversible) {swap(u, v);}
                 }
@@ -313,13 +334,18 @@ int main(int argc, char** argv) {
 
     // find_f_records(BASE_FARE_PATH);
 
-    index_to_nlc.reserve(5000); // I know that there are about 5000 stations and clusters.
+    index_to_nlc.reserve(N_NLC_APPROX); // I know that there are about 5000 stations and clusters.
 
+    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
     process_cluster_file(BASE_FARE_PATH, TRAVEL_DATE_STRING);
+    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
     process_nlc_data_file(NLC_CSV_FILE, BASE_FARE_PATH);
+    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
     int N = nlc_to_index.size();
     unordered_set<int> starting_stations = get_starting_stations(N, STARTING_STATIONS_FILE);
+    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
     process_flows_file(N, BASE_FARE_PATH, TRAVEL_DATE_STRING);
+    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
 
     AL.assign(N, vector<pair<int, int>>());
     // Construct Adjacency List
@@ -330,6 +356,7 @@ int main(int argc, char** argv) {
             }
         }
     }
+    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
     
     cout << "Processed " << starting_stations.size() << " starting stations." << endl;
     vector<int> cost(N, INF);
@@ -340,6 +367,7 @@ int main(int argc, char** argv) {
         cost[one_start_nlc] = 0;
         pq.emplace(-cost[one_start_nlc], one_start_nlc);
     }
+    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
 
     cout << "About to start dijkstra" << endl;
 
@@ -357,6 +385,7 @@ int main(int argc, char** argv) {
             }
         }
     }
+    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
 
     cout << "Done Dijkstra" << endl;
 
@@ -368,24 +397,24 @@ int main(int argc, char** argv) {
         // cout << name << " - " << cost[i] << '\n';
         cout << name << '\n';
 
-        // cout << "We can reach " << name << " for " << cost[i] << '\n';
-        // vector<int> stops;
-        // stops.push_back(i);
-        // while (i != parent[i]) {
-        //     i = parent[i];
-        //     stops.push_back(i);
-        // }
-        // reverse(stops.begin(), stops.end());
-        // int prev = -1;
-        // for (int s : stops) {
-        //     if (prev != -1) {
-        //         cout << " - "  << index_to_nlc[s].first << "(" << get_name(s) << ")" << " (" << ticket_codes_using[prev][s]<< ", " <<  AM[prev][s] << "p)\n";
-        //     } else {
-        //         cout << " - "  << index_to_nlc[s].first << "(" << get_name(s) << ")"  << "\n";
-        //     }
+        cout << "We can reach " << name << " for " << cost[i] << '\n';
+        vector<int> stops;
+        stops.push_back(i);
+        while (i != parent[i]) {
+            i = parent[i];
+            stops.push_back(i);
+        }
+        reverse(stops.begin(), stops.end());
+        int prev = -1;
+        for (int s : stops) {
+            if (prev != -1) {
+                cout << " - "  << index_to_nlc[s].first << "(" << get_name(s) << ")" << " (" << ticket_codes_using[prev][s] << ", " <<  AM[prev][s] << "p)\n";
+            } else {
+                cout << " - "  << index_to_nlc[s].first << "(" << get_name(s) << ")"  << "\n";
+            }
 
-        //     prev = s;
-        // }
+            prev = s;
+        }
     }
 
     return 0;
