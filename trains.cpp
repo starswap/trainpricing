@@ -32,8 +32,8 @@ int nlc_idx = 0;
 // to only fares which are not advances and therefore the prices are fixed and known.
 // Check https://raileasy.co.uk/fare/CDS for example to find out what 
 // these codes correspond to.
-bool acceptable_ticket(string code) {
-    return code == "CDS" || code == "CBB" || code == "SDS" || code == "SWS";
+bool acceptable_ticket(const char *code) {
+    return (strncmp("CDS", code, 3) == 0)  || (strncmp("CBB", code, 3) == 0) || (strncmp("SDS", code, 3) == 0) || (strncmp("SWS", code, 3) == 0);
 }
 
 // Utilities
@@ -67,6 +67,16 @@ int fast_atoi( const char * str )
     }
     return val;
 }
+
+int fast_atoi( const char * str, int max)
+{
+    int val = 0;
+    while( *str && (max-- != 0) ) {
+        val = val*10 + (*str++ - '0');
+    }
+    return val;
+}
+
 
 // https://stackoverflow.com/questions/1577475/c-sorting-and-keeping-track-of-indexes
 template <typename T>
@@ -260,16 +270,16 @@ void process_flows_file(int N, string base_fare_path, string travel_date_string)
                 // seem to ever have this problem.
                 flow_id_to_vertices[flow_id] = make_tuple(nlc_to_index[origin_nlc], nlc_to_index[dest_nlc], (direction == 'R'));
             } else if (line[1] == 'T') {
-                const int flow_id = fast_atoi(line.substr(2, 7).c_str());
+                const int flow_id = fast_atoi(&line[2], 7);
                 if (!flow_id_to_vertices.count(flow_id)) continue;
-                const string ticket_code = line.substr(9, 3);
-                const int fare_in_pence = fast_atoi(line.substr(12, 8).c_str());
+                // const string ticket_code = ;
+                const int fare_in_pence = fast_atoi(&line[12], 8);
                 auto [u, v, reversible] = flow_id_to_vertices[flow_id];
 
                 for (int i = 0; i < 2; ++i) { // Try both ways round
-                    if ((acceptable_ticket(ticket_code)) && AM[u][v] > fare_in_pence && fare_in_pence > MIN_SANE_FARE) {
+                    if ((acceptable_ticket(&line[9])) && AM[u][v] > fare_in_pence && fare_in_pence > MIN_SANE_FARE) {
                         AM[u][v] = fare_in_pence;
-                        strcpy(ticket_codes_using[u][v], ticket_code.c_str());
+                        strncpy(ticket_codes_using[u][v], &line[9], 3);
                     }
                     if (reversible) {swap(u, v);}
                 }
