@@ -12,7 +12,8 @@ In any case if you want to run this yourself for any reason you need to:
 4. Run the `convert_corpus.py` script across the resulting JSON file to put the data in the target format for trains.cpp
 5. Compile and run trains.cpp, providing the data files and a travel date (used to ensure we only cite fares from the fares period encompassing the target travel date). For example:
 ```
-./a.out "../fetch/fares_data/RJFAF063" "../fetch/nlcs_corpus.csv" "16062024" "starting_stations.txt"
+g++ -g -Ofast -Wall -Wextra trains.cpp
+./a.out "../fetch/fares_data/RJFAF063" "../fetch/nlcs_corpus.csv" "16062024" "starting_stations.txt" 2000
 ```
 
 Data reference: https://data.atoc.org/sites/all/themes/atoc/files/RSPS5045.pdf

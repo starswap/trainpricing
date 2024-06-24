@@ -1,29 +1,19 @@
 #include <bits/stdc++.h>
 using namespace std;
 
-using std::chrono::high_resolution_clock;
-using std::chrono::duration_cast;
-using std::chrono::duration;
-using std::chrono::milliseconds;
+unordered_map<string, vector<int>> clusters;                   // Cluster NLC to list of station NLCs 
+unordered_map<int, string> nlc_to_name;                        // Station NLC to name
+unordered_map<string, int> name_to_nlc;                        // Reverse mapping of the above
+unordered_map<string, int> nlc_to_index;                       // Map to compressed indices
+unordered_map<int, tuple<int, int, bool>> flow_id_to_vertices; // Start NLC, End NLC, Reversible 
+vector<pair<string, bool>> index_to_nlc;                       // true = cluster
+vector<vector<int>> AM;                                        // Adjacency matrix on the compressed indices
+vector<vector<pair<int, int>>> AL;                             // Adjacency list on the compressed indices
 
-unordered_map<string, vector<int>> clusters;
-unordered_map<int, string> nlc_to_name;
-unordered_map<string, int> name_to_nlc;
-unordered_map<string, int> nlc_to_index;
-unordered_map<int, tuple<int, int, bool>> flow_id_to_vertices;
-vector<pair<string, bool>> index_to_nlc; // true = cluster
-vector<vector<int>> AM;
-vector<vector<pair<int, int>>> AL;
-
-const int N_NLC_APPROX = 5000;
-char ticket_codes_using[N_NLC_APPROX][N_NLC_APPROX][4];
-
-auto t0 = high_resolution_clock::now();
-
-const int INF = 1'000'000'000;
-
-// We eliminate all fares below £1 as these are typically special case fares which are not available in practice
-const int MIN_SANE_FARE = 100;
+const int INF           = 1'000'000'000;                       // Infinity - no UK rail fare is more than 1 bn pence
+const int N_NLC_APPROX  = 5000;                                // This does need to be >= the number of cluster + station NLCs total
+const int MIN_SANE_FARE = 100;                                 // We eliminate all fares below £1 as these are typically special case fares which are not available in practice
+char ticket_codes_using[N_NLC_APPROX][N_NLC_APPROX][4];        // Corresponds to the AM - ticket_codes_using[u][v] reveals the ticket code used to get the price stated in AM[u][v]
 
 // Tracks the current index we are on (index of the next NLC) in the compressed graph representation.
 int nlc_idx = 0;
@@ -59,24 +49,16 @@ vector<string> getNextLineAndSplitIntoTokens(istream& str)
 }
 
 // https://stackoverflow.com/questions/16826422/c-most-efficient-way-to-convert-string-to-int-faster-than-atoi
-int fast_atoi( const char * str )
-{
+int fast_atoi(const char * str, int maxDigits) {
     int val = 0;
-    while( *str ) {
+    while(*str && (maxDigits-- != 0) ) {
         val = val*10 + (*str++ - '0');
     }
     return val;
 }
-
-int fast_atoi( const char * str, int max)
-{
-    int val = 0;
-    while( *str && (max-- != 0) ) {
-        val = val*10 + (*str++ - '0');
-    }
-    return val;
+int fast_atoi(const char * str) {
+    return fast_atoi(str, 50);
 }
-
 
 // https://stackoverflow.com/questions/1577475/c-sorting-and-keeping-track-of-indexes
 template <typename T>
@@ -88,7 +70,7 @@ vector<size_t> sort_indexes(const vector<T> &v) {
 }
 
 // Converts a date of the form 01012024 to a number of seconds since the epoch
-tuple<int, int, int> parse(string date_string) {
+tuple<int, int, int> parseDateToTuple(string date_string) {
     int day = fast_atoi(date_string.substr(0, 2).c_str());
     int month = fast_atoi(date_string.substr(2, 2).c_str());
     int year = fast_atoi(date_string.substr(4, 4).c_str());
@@ -98,14 +80,14 @@ tuple<int, int, int> parse(string date_string) {
 // Determines if we are currently in the period starting on start_date_string
 // and ending on end_date_string inclusive
 bool is_active(string start_date_string, string travel_date_string,  string end_date_string) {    
-    auto start = parse(start_date_string);
-    auto travel = parse(travel_date_string);
-    auto end = parse(end_date_string);
-    return start <= travel && (end_date_string == "31122999" || travel <= end);
+    auto start = parseDateToTuple(start_date_string);
+    auto travel = parseDateToTuple(travel_date_string);
+    auto end = parseDateToTuple(end_date_string);
+    return start <= travel && (end_date_string == "31122999" || travel <= end); // Optimisation in case parsing is slow
 }
 
 // Displays the station clusters defined by the imported fares data so that we can
-// try to work out what they correspond to. 
+// try to work out what they correspond to. [Debug / info]
 void print_clusters() {
     cout << "Known clusters:" << '\n';
     for (const auto &[cluster_id, members] : clusters) {
@@ -147,7 +129,9 @@ void process_cluster_file(string base_fare_path, string travel_date_string) {
             string cluster_nlc = line.substr(1, 4); 
             string target_nlc = line.substr(5, 4);
             if (!(target_nlc[0] >= '0' && target_nlc[0] <= '9')) {
-                // These correspond to stations that we don't have the NLC of. Typically this is things that are not really stations like ferry terminals or bus stops. As we lack the data and only really care about taking the train here we ignore these records. 
+                // These correspond to stations that we don't have the NLC of.
+                // Typically this is things that are not really stations like ferry terminals or bus stops.
+                // As we lack the data and only really care about taking the train here we ignore these records. 
                 invalid_count++; 
                 continue;
             }; 
@@ -162,7 +146,6 @@ void process_cluster_file(string base_fare_path, string travel_date_string) {
         cout << "Processed " << valid_count << " valid records with " << invalid_count << " skipped ones." << endl; 
         cout << "Total " << nlc_to_index.size() << " station clusters." << endl;
     }
-
 }
 
 // Get only the NLCs that are referenced in the flow data so we can
@@ -243,9 +226,7 @@ void process_flows_file(int N, string base_fare_path, string travel_date_string)
     int total_flows = 0;
     string line;
     AM.assign(N, vector<int>(N, INF));
-    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
-    cout << "starting str" << endl;
-    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
+
     cout << "Processing FFL flow file:" << endl;
     ifstream flows(base_fare_path + ".FFL"); 
     if (flows.is_open()) {
@@ -272,7 +253,6 @@ void process_flows_file(int N, string base_fare_path, string travel_date_string)
             } else if (line[1] == 'T') {
                 const int flow_id = fast_atoi(&line[2], 7);
                 if (!flow_id_to_vertices.count(flow_id)) continue;
-                // const string ticket_code = ;
                 const int fare_in_pence = fast_atoi(&line[12], 8);
                 auto [u, v, reversible] = flow_id_to_vertices[flow_id];
 
@@ -293,72 +273,10 @@ void process_flows_file(int N, string base_fare_path, string travel_date_string)
     }
 }
 
-// // Reads in the actual flows and fares data itself.
-// void find_f_records(string base_fare_path) {
-//     string line;
-//     cout << "Finding start point" << endl;
-//     ifstream flows(base_fare_path + ".FFL"); 
-    
-//     if (flows.is_open()) {
-//         for (int i = 0; i < 4; ++i) { // skip first 3 comments
-//             getline(flows, line);
-//         }
-        
-//         long records;
-//         sscanf(line.c_str(),"/!! Records: %ld",&records);
-//         while (line[0] == '/') {
-//             getline(flows, line);
-//         }
-
-//         int lineLength = line.size();
-//         auto lo = flows.tellg();
-
-
-//     // int lo = 0;
-//     // int hi = 
-    
-//     //         if (line[1] == 'F') {
-//     //         } else if (line[1] == 'T') {
-//     //         } else {
-//     //             cout << "Illegal line: " << line << endl;
-//     //         }
-//         // }
-//         flows.close();
-//     } else {
-//         cout << "Failed to open flows file" << endl;
-//     }
-// }
-
-
-int main(int argc, char** argv) {
-    if (argc != 5) {
-        cout << "Usage: <program executable> <base fare path> <nlc csv file> <travel date string> <starting stations file>" << '\n';
-        cout << "For example: ./a.out fetch/fares_data/RJFAF063 fetch/nlcs_corpus.csv 16062024 starting_stations.txt" << endl;
-        return -1;
-    }
-
-    string BASE_FARE_PATH(argv[1]);  // You need to download the fare data from https://opendata.nationalrail.co.uk/ (see fetch.py)
-    string NLC_CSV_FILE(argv[2]); // You can get this from CORPUS Open Data which is owned by /Network/ Rail https://wiki.openraildata.com/index.php?title=Reference_Data#CORPUS:_Location_Reference_Data  
-    string TRAVEL_DATE_STRING(argv[3]); // E.g. 29022024 for 29th February 2024
-    string STARTING_STATIONS_FILE(argv[4]); // E.g. starting_stations.txt. The names used need to match those from CORPUS.
-
-    // find_f_records(BASE_FARE_PATH);
-
-    index_to_nlc.reserve(N_NLC_APPROX); // I know that there are about 5000 stations and clusters.
-
-    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
-    process_cluster_file(BASE_FARE_PATH, TRAVEL_DATE_STRING);
-    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
-    process_nlc_data_file(NLC_CSV_FILE, BASE_FARE_PATH);
-    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
-    int N = nlc_to_index.size();
-    unordered_set<int> starting_stations = get_starting_stations(N, STARTING_STATIONS_FILE);
-    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
-    process_flows_file(N, BASE_FARE_PATH, TRAVEL_DATE_STRING);
-    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
-
+// Adjacency list will be a more efficient representation for Dijkstra but AM is easier to
+// build from the flow data.
+void convert_AM_to_AL(int N) {
     AL.assign(N, vector<pair<int, int>>());
-    // Construct Adjacency List
     for (int i = 0; i < N; ++i) {
         for (int j = 0; j < N; ++j) {
             if (AM[i][j] < INF) {
@@ -366,9 +284,16 @@ int main(int argc, char** argv) {
             }
         }
     }
-    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
-    
+}
+
+// Compute cheapest routes to each location
+void do_dijkstra(int N, string starting_stations_file, int cost_limit) {
+    /* Load in the starting stations */
+    cout << "Processing starting stations " << endl;
+    unordered_set<int> starting_stations = get_starting_stations(N, starting_stations_file);
     cout << "Processed " << starting_stations.size() << " starting stations." << endl;
+    
+    /* Set up the initial costs for the starting stations as 0 */
     vector<int> cost(N, INF);
     priority_queue<pair<int, int>> pq;
 
@@ -377,10 +302,10 @@ int main(int argc, char** argv) {
         cost[one_start_nlc] = 0;
         pq.emplace(-cost[one_start_nlc], one_start_nlc);
     }
-    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
 
+    
+    /* Compute the costs to each station */
     cout << "About to start dijkstra" << endl;
-
     vector<unsigned int> parent(N);
     iota(parent.begin(), parent.end(), 0);
     while (!pq.empty()) {
@@ -395,19 +320,18 @@ int main(int argc, char** argv) {
             }
         }
     }
-    cout << duration_cast<milliseconds>(high_resolution_clock::now() - t0).count() << endl;
-
     cout << "Done Dijkstra" << endl;
 
+    /* Display the results */
     for (auto i: sort_indexes(cost)) {
         string name = get_name(i);
 
-        if (cost[i] > 2000) break;
-        if (index_to_nlc[i].second) continue;
-        // cout << name << " - " << cost[i] << '\n';
-        cout << name << '\n';
+        if (cost[i] > cost_limit) break;       // Stop outputting once we reach the user's cost threshold
+        if (index_to_nlc[i].second) continue;  // Don't output clusters - this is arbitrary; you might want to 
 
         cout << "We can reach " << name << " for " << cost[i] << '\n';
+
+        /* Calculate the route to this destination */
         vector<int> stops;
         stops.push_back(i);
         while (i != parent[i]) {
@@ -415,6 +339,8 @@ int main(int argc, char** argv) {
             stops.push_back(i);
         }
         reverse(stops.begin(), stops.end());
+
+        /* Display the route to this destination */
         int prev = -1;
         for (int s : stops) {
             if (prev != -1) {
@@ -422,10 +348,37 @@ int main(int argc, char** argv) {
             } else {
                 cout << " - "  << index_to_nlc[s].first << "(" << get_name(s) << ")"  << "\n";
             }
-
             prev = s;
         }
     }
+}
+
+int main(int argc, char** argv) {
+    
+    /* Check CMD Line arguments */
+    if (argc != 6) {
+        cout << "Usage: <program executable> <base fare path> <nlc csv file> <travel date string> <starting stations file> <cost limit>" << '\n';
+        cout << "For example: ./a.out fetch/fares_data/RJFAF063 fetch/nlcs_corpus.csv 16062024 starting_stations.txt 2000" << endl;
+        return -1;
+    }
+
+    /* Process CMD Line arguments */
+    string BASE_FARE_PATH(argv[1]);         // You need to download the fare data from https://opendata.nationalrail.co.uk/ (see fetch.py)
+    string NLC_CSV_FILE(argv[2]);           // You can get this from CORPUS Open Data which is owned by /Network/ Rail https://wiki.openraildata.com/index.php?title=Reference_Data#CORPUS:_Location_Reference_Data  
+    string TRAVEL_DATE_STRING(argv[3]);     // E.g. 29022024 for 29th February 2024
+    string STARTING_STATIONS_FILE(argv[4]); // E.g. starting_stations.txt. The names used need to match those from CORPUS.
+    int COST_LIMIT = fast_atoi(argv[5]);    // E.g. 2000 for 20 pounds. (in pence)
+
+    /* Process Fares Data */
+    index_to_nlc.reserve(N_NLC_APPROX);
+    process_cluster_file(BASE_FARE_PATH, TRAVEL_DATE_STRING);
+    process_nlc_data_file(NLC_CSV_FILE, BASE_FARE_PATH);
+    int N = nlc_to_index.size();
+    process_flows_file(N, BASE_FARE_PATH, TRAVEL_DATE_STRING);
+    convert_AM_to_AL(N);
+
+    /* Get and display the results! */
+    do_dijkstra(N, STARTING_STATIONS_FILE, COST_LIMIT);
 
     return 0;
 }
