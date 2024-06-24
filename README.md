@@ -21,4 +21,4 @@ Data reference: https://data.atoc.org/sites/all/themes/atoc/files/RSPS5045.pdf
 ## Future Improvements
 - Include non derivable fares and railcard discounts
 - Try using a variety of tickets on each journey leg (e.g. the five best) and get a range of costs for a given journey.
-- Treat clusters differently by adding direct station to station links for every cluster flow. This would enable us to benefit from clusters at the end of the journey as well.
+- Treat clusters differently by adding direct station to station links for every cluster flow. This would enable us to benefit from clusters at the end of the journey as well. See for example Folkestone as a reason why this is a problem.
